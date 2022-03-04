@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -45,6 +46,52 @@ bool checkValidationLayerSupport() {
   return true;
 }
 
+struct QueueFamilyIndices {
+  std::optional<u32> graphicsFamily;
+};
+
+bool isComplete(QueueFamilyIndices *indices) {
+  return indices->graphicsFamily.has_value();
+}
+
+QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
+  QueueFamilyIndices indices;
+
+  u32 queueFamilyCount;
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+  std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount,
+                                           queueFamilies.data());
+
+  int i = 0;
+  for (const auto &queueFamily : queueFamilies) {
+    if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+      indices.graphicsFamily = i;
+
+    if (isComplete(&indices))
+      return indices;
+    i++;
+  }
+
+  return indices;
+}
+
+bool isDeviceSuitable(VkPhysicalDevice device) {
+  VkPhysicalDeviceProperties deviceProperties;
+  vkGetPhysicalDeviceProperties(device, &deviceProperties);
+
+  VkPhysicalDeviceFeatures deviceFeatures;
+  vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+  if (deviceProperties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+    return false;
+
+  QueueFamilyIndices indices = findQueueFamilies(device);
+
+  return isComplete(&indices);
+}
+
 class HelloTriangleApplication {
 public:
   void run() {
@@ -57,6 +104,7 @@ public:
 private:
   GLFWwindow *window;
   VkInstance instance;
+  VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 
   void createInstance() {
     if (enableValidationLayers && !checkValidationLayerSupport())
@@ -103,7 +151,31 @@ private:
     }
   }
 
-  void initVulkan() { createInstance(); }
+  void pickPhysicalDevice() {
+    u32 deviceCount = 0;
+    vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+
+    if (deviceCount == 0)
+      throw std::runtime_error("unable to find any GPU with Vulkan support!");
+
+    std::vector<VkPhysicalDevice> devices(deviceCount);
+    vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+
+    for (const auto &device : devices) {
+      if (isDeviceSuitable(device)) {
+        physicalDevice = device;
+        break;
+      }
+    }
+
+    if (physicalDevice == VK_NULL_HANDLE)
+      throw std::runtime_error("unable to find a suitable GPU!");
+  }
+
+  void initVulkan() {
+    createInstance();
+    pickPhysicalDevice();
+  }
 
   void initWindow() {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
